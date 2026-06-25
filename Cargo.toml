@@ -1,0 +1,9 @@
+[package]
+name = "hwp-convert-cli"
+version = "0.1.0"
+edition = "2024"
+description = "CLI for converting HWP/HWPX documents through Hancom Office automation"
+license = "MIT"
+repository = "https://github.com/nanpuhaha/hwp-convert-cli"
+
+[dependencies]
