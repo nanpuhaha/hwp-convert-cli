@@ -1,6 +1,6 @@
 # hwp-convert-cli
 
-`hwp-convert-cli` is a Windows CLI for converting Hancom document files by automating an installed Hancom Office Hangul instance.
+`hwp-convert-cli` is a Windows CLI for converting Hancom document files by automating an installed Hancom Office Hangul instance. It also builds a short `hwpc` executable for day-to-day use.
 
 The implementation follows the core approach used by `ssj1977/hwp2pdf`: create a Hancom automation object, open the source file, and call `SaveAs(output, targetType, "")`. Version 1 intentionally supports PDF through `SaveAs("PDF")` only; virtual PDF printer conversion is not included yet.
 
@@ -21,6 +21,7 @@ The executable is created at:
 
 ```text
 target\release\hwp-convert-cli.exe
+target\release\hwpc.exe
 ```
 
 ## Usage
@@ -29,6 +30,14 @@ target\release\hwp-convert-cli.exe
 hwp-convert-cli convert .\sample.hwp --to hwpx
 hwp-convert-cli convert .\sample.hwp --to pdf --output .\sample.pdf --overwrite
 hwp-convert-cli convert .\docs --to pdf --out-dir .\converted --recursive --json
+```
+
+The same commands can be called with the shorter alias:
+
+```powershell
+hwpc convert .\sample.hwp --to hwpx
+hwpc convert .\sample.hwp --to pdf --output .\sample.pdf --overwrite
+hwpc convert .\docs --to pdf --out-dir .\converted --recursive --json
 ```
 
 Supported targets:

@@ -21,7 +21,7 @@ const SOURCE_EXTENSIONS: &[&str] = &[
     "hwp", "hwpx", "hml", "html", "htm", "odt", "docx", "doc", "txt", "rtf",
 ];
 
-fn main() {
+pub fn main_entry() {
     match run(env::args().collect()) {
         Ok(()) => {}
         Err(err) => {
@@ -36,7 +36,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
 
     match cli.command {
         CommandKind::Help => {
-            print_help();
+            print_help(&cli.bin_name);
             Ok(())
         }
         CommandKind::Formats => {
@@ -51,6 +51,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
 
 #[derive(Debug, PartialEq, Eq)]
 struct Cli {
+    bin_name: String,
     command: CommandKind,
 }
 
@@ -99,21 +100,33 @@ impl OutputFormat {
 impl Cli {
     fn parse(args: Vec<String>) -> Result<Self, String> {
         let mut args = args.into_iter();
-        let _bin = args.next();
+        let bin_name = args
+            .next()
+            .and_then(|arg| {
+                Path::new(&arg)
+                    .file_stem()
+                    .and_then(OsStr::to_str)
+                    .map(str::to_string)
+            })
+            .unwrap_or_else(|| "hwpc".to_string());
         let Some(command) = args.next() else {
             return Ok(Self {
+                bin_name,
                 command: CommandKind::Help,
             });
         };
 
         match command.as_str() {
             "-h" | "--help" | "help" => Ok(Self {
+                bin_name,
                 command: CommandKind::Help,
             }),
             "formats" => Ok(Self {
+                bin_name,
                 command: CommandKind::Formats,
             }),
             "convert" => Ok(Self {
+                bin_name,
                 command: CommandKind::Convert(parse_convert(args.collect())?),
             }),
             other => Err(format!("unknown command `{other}`")),
@@ -519,15 +532,18 @@ fn json_escape(value: &str) -> String {
     escaped
 }
 
-fn print_help() {
+fn print_help(bin_name: &str) {
     println!(
-        r#"hwp-convert-cli
+        r#"{bin_name}
 
 Convert Hancom document files by automating installed Hancom Office on Windows.
 
 USAGE:
-  hwp-convert-cli convert <INPUT...> --to <FORMAT> [OPTIONS]
-  hwp-convert-cli formats
+  {bin_name} convert <INPUT...> --to <FORMAT> [OPTIONS]
+  {bin_name} formats
+
+ALIASES:
+  hwp-convert-cli, hwpc
 
 FORMATS:
   pdf, hwpx, hwp, hml, html, odt, docx, txt, rtf
@@ -567,6 +583,7 @@ mod tests {
         assert_eq!(
             cli,
             Cli {
+                bin_name: "hwp-convert-cli".to_string(),
                 command: CommandKind::Convert(ConvertOptions {
                     inputs: vec![PathBuf::from("sample.hwp")],
                     to: OutputFormat {

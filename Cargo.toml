@@ -7,3 +7,11 @@ license = "MIT"
 repository = "https://github.com/nanpuhaha/hwp-convert-cli"
 
 [dependencies]
+
+[[bin]]
+name = "hwp-convert-cli"
+path = "src/bin/hwp-convert-cli.rs"
+
+[[bin]]
+name = "hwpc"
+path = "src/bin/hwpc.rs"
