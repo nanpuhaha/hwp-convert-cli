@@ -5,6 +5,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use serde::Deserialize;
+
 const SUPPORTED_FORMATS: &[(&str, &str)] = &[
     ("pdf", "PDF"),
     ("hwpx", "HWPX"),
@@ -135,15 +137,22 @@ impl Cli {
 }
 
 fn parse_convert(args: Vec<String>) -> Result<ConvertOptions, String> {
+    parse_convert_with_defaults(args, DefaultOptions::load()?)
+}
+
+fn parse_convert_with_defaults(
+    args: Vec<String>,
+    defaults: DefaultOptions,
+) -> Result<ConvertOptions, String> {
     let mut inputs = Vec::new();
     let mut to = None;
     let mut output = None;
     let mut out_dir = None;
-    let mut recursive = false;
-    let mut overwrite = false;
-    let mut skip_existing = false;
-    let mut json = false;
-    let mut file_path_checker_dll = env::var_os("HWP_FILE_PATH_CHECKER_DLL").map(PathBuf::from);
+    let mut recursive = defaults.recursive;
+    let mut overwrite = defaults.overwrite;
+    let mut skip_existing = defaults.skip_existing;
+    let mut json = defaults.json;
+    let mut file_path_checker_dll = defaults.file_path_checker_dll;
 
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {
@@ -167,9 +176,13 @@ fn parse_convert(args: Vec<String>) -> Result<ConvertOptions, String> {
                 out_dir = Some(PathBuf::from(value));
             }
             "--recursive" | "-r" => recursive = true,
+            "--no-recursive" => recursive = false,
             "--overwrite" => overwrite = true,
+            "--no-overwrite" => overwrite = false,
             "--skip-existing" => skip_existing = true,
+            "--no-skip-existing" => skip_existing = false,
             "--json" => json = true,
+            "--no-json" => json = false,
             "--file-path-checker-dll" => {
                 let value = iter
                     .next()
@@ -208,6 +221,113 @@ fn parse_convert(args: Vec<String>) -> Result<ConvertOptions, String> {
         json,
         file_path_checker_dll,
     })
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct DefaultOptions {
+    recursive: bool,
+    overwrite: bool,
+    skip_existing: bool,
+    json: bool,
+    file_path_checker_dll: Option<PathBuf>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct ConfigFile {
+    recursive: Option<bool>,
+    overwrite: Option<bool>,
+    skip_existing: Option<bool>,
+    json: Option<bool>,
+    file_path_checker_dll: Option<PathBuf>,
+}
+
+impl DefaultOptions {
+    fn load() -> Result<Self, String> {
+        let mut defaults = Self::default();
+
+        if let Some(path) = config_path()
+            && path.exists()
+        {
+            let config_text = fs::read_to_string(&path)
+                .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
+            let config: ConfigFile = serde_json::from_str(&config_text)
+                .map_err(|err| format!("failed to parse {}: {err}", path.display()))?;
+            defaults.apply_config(config);
+        }
+
+        defaults.apply_env()?;
+        Ok(defaults)
+    }
+
+    fn apply_config(&mut self, config: ConfigFile) {
+        if let Some(value) = config.recursive {
+            self.recursive = value;
+        }
+        if let Some(value) = config.overwrite {
+            self.overwrite = value;
+        }
+        if let Some(value) = config.skip_existing {
+            self.skip_existing = value;
+        }
+        if let Some(value) = config.json {
+            self.json = value;
+        }
+        if let Some(value) = config.file_path_checker_dll {
+            self.file_path_checker_dll = Some(value);
+        }
+    }
+
+    fn apply_env(&mut self) -> Result<(), String> {
+        if let Some(value) = env_bool("HWPC_RECURSIVE")? {
+            self.recursive = value;
+        }
+        if let Some(value) = env_bool("HWPC_OVERWRITE")? {
+            self.overwrite = value;
+        }
+        if let Some(value) = env_bool("HWPC_SKIP_EXISTING")? {
+            self.skip_existing = value;
+        }
+        if let Some(value) = env_bool("HWPC_JSON")? {
+            self.json = value;
+        }
+        if let Some(value) = env::var_os("HWPC_FILE_PATH_CHECKER_DLL")
+            .or_else(|| env::var_os("HWP_FILE_PATH_CHECKER_DLL"))
+        {
+            self.file_path_checker_dll = Some(PathBuf::from(value));
+        }
+        Ok(())
+    }
+}
+
+fn config_path() -> Option<PathBuf> {
+    env::var_os("HWPC_CONFIG")
+        .map(PathBuf::from)
+        .or_else(|| home_dir().map(|home| home.join(".config").join("hwpc").join("config.json")))
+}
+
+fn home_dir() -> Option<PathBuf> {
+    env::var_os("USERPROFILE")
+        .or_else(|| env::var_os("HOME"))
+        .map(PathBuf::from)
+}
+
+fn env_bool(name: &str) -> Result<Option<bool>, String> {
+    let Some(value) = env::var_os(name) else {
+        return Ok(None);
+    };
+    let value = value.to_string_lossy();
+    parse_bool(&value)
+        .map(Some)
+        .ok_or_else(|| format!("{name} must be one of true, false, 1, 0, yes, no, on, off"))
+}
+
+fn parse_bool(value: &str) -> Option<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
+    }
 }
 
 fn convert(opts: ConvertOptions) -> Result<(), String> {
@@ -557,8 +677,18 @@ OPTIONS:
   --skip-existing                Skip files whose output already exists
   --json                         Print one JSON object per input
   --file-path-checker-dll <PATH> Register Hancom FilePathCheckerModuleExample.dll
+  --no-recursive                 Disable recursive scanning from defaults
+  --no-overwrite                 Disable overwrite from defaults
+  --no-skip-existing             Disable skip-existing from defaults
+  --no-json                      Disable JSON output from defaults
 
 ENV:
+  HWPC_CONFIG                    Config file path; defaults to ~/.config/hwpc/config.json
+  HWPC_OVERWRITE                 Default --overwrite value
+  HWPC_SKIP_EXISTING             Default --skip-existing value
+  HWPC_JSON                      Default --json value
+  HWPC_RECURSIVE                 Default --recursive value
+  HWPC_FILE_PATH_CHECKER_DLL     Default FilePathCheckerModuleExample.dll path
   HWP_FILE_PATH_CHECKER_DLL       Default FilePathCheckerModuleExample.dll path
 "#
     );
@@ -596,8 +726,7 @@ mod tests {
                     overwrite: false,
                     skip_existing: false,
                     json: true,
-                    file_path_checker_dll: env::var_os("HWP_FILE_PATH_CHECKER_DLL")
-                        .map(PathBuf::from),
+                    file_path_checker_dll: DefaultOptions::load().unwrap().file_path_checker_dll,
                 })
             }
         );
@@ -605,14 +734,17 @@ mod tests {
 
     #[test]
     fn rejects_output_with_multiple_inputs() {
-        let err = parse_convert(vec![
-            "a.hwp".into(),
-            "b.hwp".into(),
-            "--to".into(),
-            "pdf".into(),
-            "--output".into(),
-            "out.pdf".into(),
-        ])
+        let err = parse_convert_with_defaults(
+            vec![
+                "a.hwp".into(),
+                "b.hwp".into(),
+                "--to".into(),
+                "pdf".into(),
+                "--output".into(),
+                "out.pdf".into(),
+            ],
+            DefaultOptions::default(),
+        )
         .unwrap_err();
 
         assert!(err.contains("only be used with one input"));
@@ -653,6 +785,42 @@ mod tests {
             "C:\\\\docs\\\\\\\"a\\\".hwp"
         );
         assert_eq!(json_escape("a\u{01}b\u{08}c\u{0c}"), "a\\u0001b\\bc\\f");
+    }
+
+    #[test]
+    fn config_defaults_can_be_overridden_by_cli_flags() {
+        let opts = parse_convert_with_defaults(
+            vec![
+                "sample.hwp".into(),
+                "--to".into(),
+                "pdf".into(),
+                "--no-overwrite".into(),
+                "--json".into(),
+            ],
+            DefaultOptions {
+                overwrite: true,
+                skip_existing: false,
+                recursive: false,
+                json: false,
+                file_path_checker_dll: Some(PathBuf::from("checker.dll")),
+            },
+        )
+        .unwrap();
+
+        assert!(!opts.overwrite);
+        assert!(opts.json);
+        assert_eq!(
+            opts.file_path_checker_dll,
+            Some(PathBuf::from("checker.dll"))
+        );
+    }
+
+    #[test]
+    fn parses_bool_environment_values() {
+        assert_eq!(parse_bool("true"), Some(true));
+        assert_eq!(parse_bool("0"), Some(false));
+        assert_eq!(parse_bool("off"), Some(false));
+        assert_eq!(parse_bool("wat"), None);
     }
 
     #[test]

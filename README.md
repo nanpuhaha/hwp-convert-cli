@@ -40,6 +40,45 @@ hwpc convert .\sample.hwp --to pdf --output .\sample.pdf --overwrite
 hwpc convert .\docs --to pdf --out-dir .\converted --recursive --json
 ```
 
+## Defaults
+
+`hwpc` reads defaults in this order:
+
+1. Built-in defaults
+2. `~\.config\hwpc\config.json`
+3. Environment variables
+4. Explicit CLI flags
+
+Example config:
+
+```json
+{
+  "overwrite": true,
+  "json": true,
+  "recursive": false,
+  "skip_existing": false,
+  "file_path_checker_dll": "C:\\path\\to\\FilePathCheckerModuleExample.dll"
+}
+```
+
+Use `HWPC_CONFIG` to point at a different config file:
+
+```powershell
+$env:HWPC_CONFIG = 'C:\Users\me\.config\hwpc\config.json'
+```
+
+Supported environment variables:
+
+```text
+HWPC_OVERWRITE=true|false
+HWPC_SKIP_EXISTING=true|false
+HWPC_JSON=true|false
+HWPC_RECURSIVE=true|false
+HWPC_FILE_PATH_CHECKER_DLL=C:\path\to\FilePathCheckerModuleExample.dll
+```
+
+CLI flags always win over defaults. For example, if config sets `"overwrite": true`, use `--no-overwrite` to disable it for one command.
+
 Supported targets:
 
 ```text

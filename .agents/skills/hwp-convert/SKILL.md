@@ -36,6 +36,24 @@ Directory batch conversion:
 target\release\hwpc.exe convert .\docs --to pdf --out-dir .\converted --recursive --skip-existing --json
 ```
 
+## Defaults
+
+The CLI reads defaults from `~\.config\hwpc\config.json`, then environment variables, then explicit CLI flags. Use explicit CLI flags for one-off behavior because they override both config and environment.
+
+Example config:
+
+```json
+{
+  "overwrite": true,
+  "json": true,
+  "recursive": false,
+  "skip_existing": false,
+  "file_path_checker_dll": "C:\\path\\to\\FilePathCheckerModuleExample.dll"
+}
+```
+
+Supported env defaults are `HWPC_OVERWRITE`, `HWPC_SKIP_EXISTING`, `HWPC_JSON`, `HWPC_RECURSIVE`, and `HWPC_FILE_PATH_CHECKER_DLL`. The existing `HWP_FILE_PATH_CHECKER_DLL` env var is also accepted.
+
 ## Agent Procedure
 
 1. Confirm the requested target format. Supported formats are `pdf`, `hwpx`, `hwp`, `hml`, `html`, `odt`, `docx`, `txt`, and `rtf`.
