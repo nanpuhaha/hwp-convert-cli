@@ -97,6 +97,36 @@ or set:
 $env:HWP_FILE_PATH_CHECKER_DLL = 'C:\path\to\FilePathCheckerModuleExample.dll'
 ```
 
+### Installing FilePathCheckerModuleExample.dll
+
+`FilePathCheckerModuleExample.dll` is not bundled with this crate or repository. It is a Hancom automation security module, so redistribution rights should be checked with Hancom before sharing the DLL publicly.
+
+If you already have the DLL, `hwpc` can copy it into its config directory and update `config.json` for you:
+
+```powershell
+hwpc file-checker install C:\path\to\FilePathCheckerModuleExample.dll
+```
+
+This copies the DLL to:
+
+```text
+%USERPROFILE%\.config\hwpc\FilePathCheckerModuleExample.dll
+```
+
+and writes:
+
+```json
+{
+  "file_path_checker_dll": "C:\\Users\\you\\.config\\hwpc\\FilePathCheckerModuleExample.dll"
+}
+```
+
+Use `--force` to replace an existing installed copy:
+
+```powershell
+hwpc file-checker install C:\path\to\FilePathCheckerModuleExample.dll --force
+```
+
 ## Notes From `ssj1977/hwp2pdf`
 
 The reference implementation is a C# WinForms app. Its conversion pipeline is:

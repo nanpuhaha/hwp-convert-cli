@@ -5,7 +5,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 const SUPPORTED_FORMATS: &[(&str, &str)] = &[
     ("pdf", "PDF"),
@@ -48,6 +48,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
             Ok(())
         }
         CommandKind::Convert(opts) => convert(opts),
+        CommandKind::FileCheckerInstall(opts) => install_file_checker(opts),
     }
 }
 
@@ -62,6 +63,7 @@ enum CommandKind {
     Help,
     Formats,
     Convert(ConvertOptions),
+    FileCheckerInstall(FileCheckerInstallOptions),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -75,6 +77,12 @@ struct ConvertOptions {
     skip_existing: bool,
     json: bool,
     file_path_checker_dll: Option<PathBuf>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct FileCheckerInstallOptions {
+    source: PathBuf,
+    force: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -131,9 +139,48 @@ impl Cli {
                 bin_name,
                 command: CommandKind::Convert(parse_convert(args.collect())?),
             }),
+            "file-checker" => Ok(Self {
+                bin_name,
+                command: CommandKind::FileCheckerInstall(parse_file_checker(args.collect())?),
+            }),
             other => Err(format!("unknown command `{other}`")),
         }
     }
+}
+
+fn parse_file_checker(args: Vec<String>) -> Result<FileCheckerInstallOptions, String> {
+    let mut iter = args.into_iter();
+    let Some(subcommand) = iter.next() else {
+        return Err("usage: hwpc file-checker install <DLL_PATH> [--force]".to_string());
+    };
+    if subcommand != "install" {
+        return Err(format!(
+            "unknown file-checker subcommand `{subcommand}`; expected `install`"
+        ));
+    }
+
+    let mut source = None;
+    let mut force = false;
+    for arg in iter {
+        match arg.as_str() {
+            "--force" => force = true,
+            "-h" | "--help" => {
+                return Err("usage: hwpc file-checker install <DLL_PATH> [--force]".to_string());
+            }
+            value if value.starts_with('-') => return Err(format!("unknown option `{value}`")),
+            value => {
+                if source.is_some() {
+                    return Err("file-checker install accepts exactly one DLL path".to_string());
+                }
+                source = Some(PathBuf::from(value));
+            }
+        }
+    }
+
+    Ok(FileCheckerInstallOptions {
+        source: source.ok_or_else(|| "file-checker install requires a DLL path".to_string())?,
+        force,
+    })
 }
 
 fn parse_convert(args: Vec<String>) -> Result<ConvertOptions, String> {
@@ -232,13 +279,18 @@ struct DefaultOptions {
     file_path_checker_dll: Option<PathBuf>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 struct ConfigFile {
+    #[serde(skip_serializing_if = "Option::is_none")]
     recursive: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     overwrite: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     skip_existing: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     json: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     file_path_checker_dll: Option<PathBuf>,
 }
 
@@ -304,6 +356,15 @@ fn config_path() -> Option<PathBuf> {
     env::var_os("HWPC_CONFIG")
         .map(PathBuf::from)
         .or_else(|| home_dir().map(|home| home.join(".config").join("hwpc").join("config.json")))
+}
+
+fn config_dir() -> Result<PathBuf, String> {
+    let path = config_path().ok_or_else(|| {
+        "cannot determine config path; set HWPC_CONFIG or USERPROFILE/HOME".to_string()
+    })?;
+    path.parent()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| format!("config path has no parent directory: {}", path.display()))
 }
 
 fn home_dir() -> Option<PathBuf> {
@@ -384,6 +445,83 @@ fn convert(opts: ConvertOptions) -> Result<(), String> {
     } else {
         Ok(())
     }
+}
+
+fn install_file_checker(opts: FileCheckerInstallOptions) -> Result<(), String> {
+    if !opts.source.is_file() {
+        return Err(format!(
+            "DLL path does not exist: {}",
+            opts.source.display()
+        ));
+    }
+    if !opts
+        .source
+        .extension()
+        .and_then(OsStr::to_str)
+        .map(|ext| ext.eq_ignore_ascii_case("dll"))
+        .unwrap_or(false)
+    {
+        return Err(format!("expected a .dll file: {}", opts.source.display()));
+    }
+
+    let config_dir = config_dir()?;
+    let config_path =
+        config_path().ok_or_else(|| "cannot determine config path for install".to_string())?;
+    let target = config_dir.join("FilePathCheckerModuleExample.dll");
+    fs::create_dir_all(&config_dir)
+        .map_err(|err| format!("failed to create {}: {err}", config_dir.display()))?;
+
+    let source = opts
+        .source
+        .canonicalize()
+        .map_err(|err| format!("{}: {err}", opts.source.display()))?;
+    let target_exists = target.exists();
+    let same_file = if target_exists {
+        same_path(&source, &target)
+    } else {
+        false
+    };
+
+    if target_exists && !same_file && !opts.force {
+        return Err(format!(
+            "{} already exists; pass --force to replace it",
+            target.display()
+        ));
+    }
+    if !same_file {
+        fs::copy(&source, &target).map_err(|err| {
+            format!(
+                "failed to copy {} to {}: {err}",
+                source.display(),
+                target.display()
+            )
+        })?;
+    }
+
+    let mut config = read_config_file(&config_path)?;
+    config.file_path_checker_dll = Some(target.clone());
+    write_config_file(&config_path, &config)?;
+
+    println!("installed {}", target.display());
+    println!("updated {}", config_path.display());
+    Ok(())
+}
+
+fn read_config_file(path: &Path) -> Result<ConfigFile, String> {
+    if !path.exists() {
+        return Ok(ConfigFile::default());
+    }
+    let config_text = fs::read_to_string(path)
+        .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
+    serde_json::from_str(&config_text)
+        .map_err(|err| format!("failed to parse {}: {err}", path.display()))
+}
+
+fn write_config_file(path: &Path, config: &ConfigFile) -> Result<(), String> {
+    let config_text = serde_json::to_string_pretty(config)
+        .map_err(|err| format!("failed to serialize config: {err}"))?;
+    fs::write(path, format!("{config_text}\n"))
+        .map_err(|err| format!("failed to write {}: {err}", path.display()))
 }
 
 #[cfg(not(windows))]
@@ -661,6 +799,7 @@ Convert Hancom document files by automating installed Hancom Office on Windows.
 USAGE:
   {bin_name} convert <INPUT...> --to <FORMAT> [OPTIONS]
   {bin_name} formats
+  {bin_name} file-checker install <DLL_PATH> [--force]
 
 ALIASES:
   hwp-convert-cli, hwpc
@@ -681,6 +820,11 @@ OPTIONS:
   --no-overwrite                 Disable overwrite from defaults
   --no-skip-existing             Disable skip-existing from defaults
   --no-json                      Disable JSON output from defaults
+
+FILE CHECKER:
+  The FilePathCheckerModuleExample.dll is not bundled. If you have it, install
+  it into hwpc's config directory and update config.json with:
+    {bin_name} file-checker install C:\path\FilePathCheckerModuleExample.dll
 
 ENV:
   HWPC_CONFIG                    Config file path; defaults to ~/.config/hwpc/config.json
@@ -821,6 +965,24 @@ mod tests {
         assert_eq!(parse_bool("0"), Some(false));
         assert_eq!(parse_bool("off"), Some(false));
         assert_eq!(parse_bool("wat"), None);
+    }
+
+    #[test]
+    fn parses_file_checker_install_command() {
+        let opts = parse_file_checker(vec![
+            "install".into(),
+            "FilePathCheckerModuleExample.dll".into(),
+            "--force".into(),
+        ])
+        .unwrap();
+
+        assert_eq!(
+            opts,
+            FileCheckerInstallOptions {
+                source: PathBuf::from("FilePathCheckerModuleExample.dll"),
+                force: true
+            }
+        );
     }
 
     #[test]

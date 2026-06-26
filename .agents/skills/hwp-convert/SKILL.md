@@ -15,6 +15,7 @@ Use this skill when the user asks to convert `.hwp`, `.hwpx`, `.hml`, `.docx`, `
 - For unattended local-file access, use `FilePathCheckerModuleExample.dll` when available:
   - pass `--file-path-checker-dll <PATH>`, or
   - set `HWP_FILE_PATH_CHECKER_DLL`.
+  - if the user already has the DLL, install it with `target\release\hwpc.exe file-checker install <PATH>`.
 
 ## Conversion Commands
 
@@ -53,6 +54,16 @@ Example config:
 ```
 
 Supported env defaults are `HWPC_OVERWRITE`, `HWPC_SKIP_EXISTING`, `HWPC_JSON`, `HWPC_RECURSIVE`, and `HWPC_FILE_PATH_CHECKER_DLL`. The existing `HWP_FILE_PATH_CHECKER_DLL` env var is also accepted.
+
+## FilePathChecker DLL
+
+Do not assume `FilePathCheckerModuleExample.dll` is bundled. It is not included in the crate or repo because redistribution rights are not established. If the user provides the DLL, register it for future conversions:
+
+```powershell
+target\release\hwpc.exe file-checker install C:\path\to\FilePathCheckerModuleExample.dll
+```
+
+This copies the DLL to the hwpc config directory and updates `config.json`.
 
 ## Agent Procedure
 
